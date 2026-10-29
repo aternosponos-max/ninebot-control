@@ -31,7 +31,14 @@ class DemoSimulator(private val scope: CoroutineScope) {
             tripDistanceKm = 0.0,
             totalDistanceKm = 142.6,
             speedMode = SpeedMode.MODE_2,
-            movementLocked = false
+            movementLocked = false,
+            cellVoltages = List(10) { 4.08 + Random.nextDouble(-0.03, 0.03) },
+            errorCodes = emptyList(),
+            firmwareVersion = "DRV 1.3.x (demo)",
+            serialNumber = "DEMO-SNSC-000001",
+            rideTimeSeconds = 0,
+            maxSpeedSessionKmh = 0.0,
+            avgSpeedSessionKmh = 0.0
         )
     )
     val state: StateFlow<ScooterState> = _state
@@ -43,6 +50,8 @@ class DemoSimulator(private val scope: CoroutineScope) {
         running = true
         scope.launch {
             var targetSpeed = 0.0
+            var speedSampleSum = 0.0
+            var speedSampleCount = 0L
             while (running) {
                 delay(400)
                 val s = _state.value
@@ -56,13 +65,25 @@ class DemoSimulator(private val scope: CoroutineScope) {
                     }
                     // На кастомной прошивке override может поднимать лимит выше заводского.
                     val cap = max(modeCap, s.tuningSpeedLimitOverrideKmh.toDouble())
-                    targetSpeed = (targetSpeed + Random.nextDouble(-2.0, 3.0)).coerceIn(0.0, cap)
+                    val delta = if (s.cruiseControlEnabled) Random.nextDouble(-0.3, 0.3)
+                                else Random.nextDouble(-2.0, 3.0)
+                    targetSpeed = (targetSpeed + delta).coerceIn(0.0, cap)
                 }
                 val speed = targetSpeed
                 val currentCapFactor = s.tuningCurrentLimitAmps / 15.0
                 val power = (speed * Random.nextDouble(20.0, 32.0) * currentCapFactor).toInt()
-                val battery = max(0, s.batteryPercent - if (Random.nextInt(40) == 0) 1 else 0)
+                val regenSlow = s.regenBrakingLevel * 2
+                val battery = max(0, s.batteryPercent - if (Random.nextInt(40 + regenSlow) == 0) 1 else 0)
                 val trip = s.tripDistanceKm + speed * (0.4 / 3600.0)
+
+                speedSampleSum += speed
+                speedSampleCount += 1
+                val avgSpeed = if (speedSampleCount > 0) speedSampleSum / speedSampleCount else 0.0
+
+                val cells = s.cellVoltages.map { v ->
+                    (v + Random.nextDouble(-0.004, 0.004) - power * 0.00002).coerceIn(3.2, 4.2)
+                }
+
                 _state.update {
                     it.copy(
                         speedKmh = speed,
@@ -70,7 +91,12 @@ class DemoSimulator(private val scope: CoroutineScope) {
                         batteryPercent = battery,
                         batteryTemperatureC = (24 + (power / 150)).coerceIn(18, 45),
                         tripDistanceKm = trip,
-                        totalDistanceKm = it.totalDistanceKm + speed * (0.4 / 3600.0)
+                        totalDistanceKm = it.totalDistanceKm + speed * (0.4 / 3600.0),
+                        rideTimeSeconds = it.rideTimeSeconds + if (speed > 0.5) 1 else 0,
+                        maxSpeedSessionKmh = max(it.maxSpeedSessionKmh, speed),
+                        avgSpeedSessionKmh = avgSpeed,
+                        cellVoltages = cells,
+                        batteryVoltage = cells.sum()
                     )
                 }
             }
@@ -99,5 +125,13 @@ class DemoSimulator(private val scope: CoroutineScope) {
 
     fun setFieldWeakening(enabled: Boolean) {
         _state.update { it.copy(tuningFieldWeakeningEnabled = enabled) }
+    }
+
+    fun setCruiseControl(enabled: Boolean) {
+        _state.update { it.copy(cruiseControlEnabled = enabled) }
+    }
+
+    fun setRegenBraking(level: Int) {
+        _state.update { it.copy(regenBrakingLevel = level) }
     }
 }

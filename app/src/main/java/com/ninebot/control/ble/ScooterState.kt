@@ -35,7 +35,20 @@ data class ScooterState(
     // прошивке соответствующие пакеты просто не будут поняты контроллером.
     val tuningCurrentLimitAmps: Int = 15,
     val tuningSpeedLimitOverrideKmh: Int = 25,
-    val tuningFieldWeakeningEnabled: Boolean = false
+    val tuningFieldWeakeningEnabled: Boolean = false,
+    val cruiseControlEnabled: Boolean = false,
+    val regenBrakingLevel: Int = 1,
+
+    // Данные для вкладки "Статистика" — аналог функций из сторонних
+    // дашборд-приложений (Ninedash и подобные): детальная диагностика
+    // батареи, ошибки контроллера, версия прошивки, статистика поездки.
+    val cellVoltages: List<Double> = emptyList(),
+    val errorCodes: List<String> = emptyList(),
+    val firmwareVersion: String = "—",
+    val serialNumber: String = "—",
+    val rideTimeSeconds: Long = 0,
+    val maxSpeedSessionKmh: Double = 0.0,
+    val avgSpeedSessionKmh: Double = 0.0
 )
 
 /** Границы параметров тюнинга — используются UI как min/max слайдеров. */
@@ -44,6 +57,8 @@ object TuningLimits {
     const val CURRENT_MAX_A = 45
     const val SPEED_MIN_KMH = 6
     const val SPEED_MAX_KMH = 55
+    const val REGEN_MIN = 0
+    const val REGEN_MAX = 3
 }
 
 /** Категории для карточек приборной панели. */

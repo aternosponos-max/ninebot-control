@@ -43,6 +43,14 @@ object NinebotProtocol {
         const val TUNING_CURRENT_LIMIT: Byte = 0xC0.toByte()
         const val TUNING_SPEED_OVERRIDE: Byte = 0xC1.toByte()
         const val TUNING_FIELD_WEAKENING: Byte = 0xC2.toByte()
+        const val TUNING_CRUISE_CONTROL: Byte = 0xC3.toByte()
+        const val TUNING_REGEN_BRAKING: Byte = 0xC4.toByte()
+
+        // Регистры чтения диагностики для вкладки "Статистика".
+        const val DIAG_CELL_VOLTAGES: Byte = 0xD0.toByte()
+        const val DIAG_ERROR_CODES: Byte = 0xD1.toByte()
+        const val DIAG_FIRMWARE_INFO: Byte = 0xD2.toByte()
+        const val DIAG_RIDE_STATS: Byte = 0xD3.toByte()
     }
 
     fun buildSetSpeedModeFrame(mode: SpeedMode): ByteArray {
@@ -80,6 +88,28 @@ object NinebotProtocol {
         val value: Byte = if (enabled) 0x01 else 0x00
         return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_FIELD_WEAKENING, byteArrayOf(value))
     }
+
+    fun buildSetCruiseControlFrame(enabled: Boolean): ByteArray {
+        val value: Byte = if (enabled) 0x01 else 0x00
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_CRUISE_CONTROL, byteArrayOf(value))
+    }
+
+    fun buildSetRegenBrakingFrame(level: Int): ByteArray {
+        val value = level.coerceIn(TuningLimits.REGEN_MIN, TuningLimits.REGEN_MAX).toByte()
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_REGEN_BRAKING, byteArrayOf(value))
+    }
+
+    fun buildReadCellVoltagesFrame(): ByteArray =
+        buildFrame(CMD_READ, UnverifiedRegisters.DIAG_CELL_VOLTAGES, byteArrayOf(0x00, 0x20))
+
+    fun buildReadErrorCodesFrame(): ByteArray =
+        buildFrame(CMD_READ, UnverifiedRegisters.DIAG_ERROR_CODES, byteArrayOf(0x00, 0x10))
+
+    fun buildReadFirmwareInfoFrame(): ByteArray =
+        buildFrame(CMD_READ, UnverifiedRegisters.DIAG_FIRMWARE_INFO, byteArrayOf(0x00, 0x20))
+
+    fun buildReadRideStatsFrame(): ByteArray =
+        buildFrame(CMD_READ, UnverifiedRegisters.DIAG_RIDE_STATS, byteArrayOf(0x00, 0x10))
 
     private fun buildFrame(cmd: Byte, arg: Byte, payload: ByteArray): ByteArray {
         val body = byteArrayOf(SRC_APP, DST_CONTROLLER, cmd, arg) + payload

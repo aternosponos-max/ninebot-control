@@ -35,7 +35,10 @@ fun DemoScreen(
     onSetMovementLock: (Boolean) -> Unit,
     onSetCurrentLimit: (Int) -> Unit,
     onSetSpeedLimitOverride: (Int) -> Unit,
-    onSetFieldWeakening: (Boolean) -> Unit
+    onSetFieldWeakening: (Boolean) -> Unit,
+    onSetCruiseControl: (Boolean) -> Unit,
+    onSetRegenBraking: (Int) -> Unit,
+    onRefreshDiagnostics: () -> Unit
 ) {
     var tab by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxWidth()) {
@@ -59,6 +62,7 @@ fun DemoScreen(
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Приборная панель") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Управление") })
             Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Тюнинг") })
+            Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Статистика") })
         }
 
         when (tab) {
@@ -68,8 +72,11 @@ fun DemoScreen(
                 state = state,
                 onSetCurrentLimit = onSetCurrentLimit,
                 onSetSpeedLimitOverride = onSetSpeedLimitOverride,
-                onSetFieldWeakening = onSetFieldWeakening
+                onSetFieldWeakening = onSetFieldWeakening,
+                onSetCruiseControl = onSetCruiseControl,
+                onSetRegenBraking = onSetRegenBraking
             )
+            3 -> StatisticsScreen(state = state, onRefresh = onRefreshDiagnostics)
         }
     }
 }

@@ -37,7 +37,9 @@ fun TuningScreen(
     state: ScooterState,
     onSetCurrentLimit: (Int) -> Unit,
     onSetSpeedLimitOverride: (Int) -> Unit,
-    onSetFieldWeakening: (Boolean) -> Unit
+    onSetFieldWeakening: (Boolean) -> Unit,
+    onSetCruiseControl: (Boolean) -> Unit,
+    onSetRegenBraking: (Int) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -130,6 +132,59 @@ fun TuningScreen(
                     Switch(
                         checked = state.tuningFieldWeakeningEnabled,
                         onCheckedChange = onSetFieldWeakening
+                    )
+                }
+            }
+        }
+
+        item {
+            Text(
+                text = "Круиз-контроль",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(text = if (state.cruiseControlEnabled) "Включён" else "Выключен")
+                        Text(
+                            text = "Удерживает текущую скорость без удержания газа",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = state.cruiseControlEnabled,
+                        onCheckedChange = onSetCruiseControl
+                    )
+                }
+            }
+        }
+
+        item {
+            Text(
+                text = "Рекуперативное торможение",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(text = "Уровень ${state.regenBrakingLevel} из ${TuningLimits.REGEN_MAX}")
+                    Slider(
+                        value = state.regenBrakingLevel.toFloat(),
+                        onValueChange = { onSetRegenBraking(it.toInt()) },
+                        valueRange = TuningLimits.REGEN_MIN.toFloat()..TuningLimits.REGEN_MAX.toFloat(),
+                        steps = TuningLimits.REGEN_MAX - TuningLimits.REGEN_MIN - 1
+                    )
+                    Text(
+                        text = "Выше — сильнее торможение двигателем и быстрее подзаряд батареи при спуске",
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }

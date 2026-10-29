@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
@@ -32,6 +33,7 @@ import com.ninebot.control.ui.screens.ControlScreen
 import com.ninebot.control.ui.screens.DashboardScreen
 import com.ninebot.control.ui.screens.DemoScreen
 import com.ninebot.control.ui.screens.SimpleDevice
+import com.ninebot.control.ui.screens.StatisticsScreen
 import com.ninebot.control.ui.screens.TuningScreen
 
 private sealed class Dest(val route: String, val label: String, val icon: ImageVector) {
@@ -39,11 +41,12 @@ private sealed class Dest(val route: String, val label: String, val icon: ImageV
     data object Control : Dest("control", "Управление", Icons.Filled.Tune)
     data object Dashboard : Dest("dashboard", "Панель", Icons.Filled.Dashboard)
     data object Tuning : Dest("tuning", "Тюнинг", Icons.Filled.Speed)
+    data object Statistics : Dest("statistics", "Статистика", Icons.Filled.QueryStats)
     data object Demo : Dest("demo", "Demo-Mode", Icons.Filled.Science)
 }
 
 private val destinations =
-    listOf(Dest.Connect, Dest.Control, Dest.Dashboard, Dest.Tuning, Dest.Demo)
+    listOf(Dest.Connect, Dest.Control, Dest.Dashboard, Dest.Tuning, Dest.Statistics, Dest.Demo)
 
 @Composable
 fun NinebotApp(bleManager: NinebotBleManager, demoSimulator: DemoSimulator) {
@@ -107,7 +110,15 @@ fun NinebotApp(bleManager: NinebotBleManager, demoSimulator: DemoSimulator) {
                     state = realState,
                     onSetCurrentLimit = { bleManager.sendSetCurrentLimit(it) },
                     onSetSpeedLimitOverride = { bleManager.sendSetSpeedLimitOverride(it) },
-                    onSetFieldWeakening = { bleManager.sendSetFieldWeakening(it) }
+                    onSetFieldWeakening = { bleManager.sendSetFieldWeakening(it) },
+                    onSetCruiseControl = { bleManager.sendSetCruiseControl(it) },
+                    onSetRegenBraking = { bleManager.sendSetRegenBraking(it) }
+                )
+            }
+            composable(Dest.Statistics.route) {
+                StatisticsScreen(
+                    state = realState,
+                    onRefresh = { bleManager.requestDiagnostics() }
                 )
             }
             composable(Dest.Demo.route) {
@@ -117,7 +128,10 @@ fun NinebotApp(bleManager: NinebotBleManager, demoSimulator: DemoSimulator) {
                     onSetMovementLock = { demoSimulator.setMovementLock(it) },
                     onSetCurrentLimit = { demoSimulator.setCurrentLimit(it) },
                     onSetSpeedLimitOverride = { demoSimulator.setSpeedLimitOverride(it) },
-                    onSetFieldWeakening = { demoSimulator.setFieldWeakening(it) }
+                    onSetFieldWeakening = { demoSimulator.setFieldWeakening(it) },
+                    onSetCruiseControl = { demoSimulator.setCruiseControl(it) },
+                    onSetRegenBraking = { demoSimulator.setRegenBraking(it) },
+                    onRefreshDiagnostics = { }
                 )
             }
         }

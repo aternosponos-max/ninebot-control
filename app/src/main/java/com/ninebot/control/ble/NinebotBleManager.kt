@@ -169,6 +169,29 @@ class NinebotBleManager(private val context: Context) {
         _state.update { it.copy(tuningFieldWeakeningEnabled = enabled) }
     }
 
+    fun sendSetCruiseControl(enabled: Boolean) {
+        writeFrame(NinebotProtocol.buildSetCruiseControlFrame(enabled))
+        _state.update { it.copy(cruiseControlEnabled = enabled) }
+    }
+
+    fun sendSetRegenBraking(level: Int) {
+        writeFrame(NinebotProtocol.buildSetRegenBrakingFrame(level))
+        _state.update { it.copy(regenBrakingLevel = level) }
+    }
+
+    /**
+     * Запрашивает диагностический блок (ячейки батареи, ошибки, прошивка,
+     * статистика поездки). Разбор ответа не реализован до калибровки по
+     * реальному устройству — см. NinebotProtocol.tryParseTelemetry. Сырой
+     * ответ будет виден в журнале на вкладке "Подключение".
+     */
+    fun requestDiagnostics() {
+        writeFrame(NinebotProtocol.buildReadCellVoltagesFrame())
+        writeFrame(NinebotProtocol.buildReadErrorCodesFrame())
+        writeFrame(NinebotProtocol.buildReadFirmwareInfoFrame())
+        writeFrame(NinebotProtocol.buildReadRideStatsFrame())
+    }
+
     private fun writeFrame(frame: ByteArray) {
         val g = gatt ?: return
         val char = writeCharacteristic ?: return
