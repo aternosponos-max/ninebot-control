@@ -32,9 +32,27 @@ jobs:
           gradle-version: '8.7'
 
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+        id: build
+        continue-on-error: true
+        run: gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-build.log
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+
+      - name: Report build failure as issue
+        if: steps.build.outcome == 'failure'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tail -c 50000 /tmp/gradle-build.log > /tmp/gradle-build-tail.log
+          {
+            echo '```'
+            cat /tmp/gradle-build-tail.log
+            echo '```'
+          } > /tmp/issue-body.md
+          gh issue create \
+            --title "Build failure: run ${{ github.run_id }}" \
+            --body-file /tmp/issue-body.md
+          exit 1
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
