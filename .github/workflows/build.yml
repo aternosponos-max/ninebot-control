@@ -38,24 +38,36 @@ jobs:
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
 
-      - name: Report build failure as issue
-        if: steps.build.outcome == 'failure'
+      - name: Check APK was produced
+        id: check_apk
+        run: |
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report diagnostics as issue
+        if: steps.build.outcome == 'failure' || steps.check_apk.outputs.found == 'false'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tail -c 50000 /tmp/gradle-build.log > /tmp/gradle-build-tail.log
           {
+            echo "### gradle outcome: ${{ steps.build.outcome }}"
+            echo "### apk found: ${{ steps.check_apk.outputs.found }}"
+            echo '### find app/build/outputs'
             echo '```'
-            cat /tmp/gradle-build-tail.log
+            find app/build/outputs -type f 2>&1 || echo "no outputs dir"
+            echo '```'
+            echo '### gradle log tail'
+            echo '```'
+            tail -c 50000 /tmp/gradle-build.log
             echo '```'
           } > /tmp/issue-body.md
           gh issue create \
-            --title "Build failure: run ${{ github.run_id }}" \
+            --title "Build diagnostics: run ${{ github.run_id }}" \
             --body-file /tmp/issue-body.md
           exit 1
-
-      - name: List build outputs (debug)
-        run: find app/build/outputs -type f 2>&1 || echo "no outputs dir"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
