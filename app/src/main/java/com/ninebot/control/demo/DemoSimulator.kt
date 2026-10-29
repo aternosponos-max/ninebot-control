@@ -49,15 +49,18 @@ class DemoSimulator(private val scope: CoroutineScope) {
                 if (s.movementLocked) {
                     targetSpeed = 0.0
                 } else {
-                    val cap = when (s.speedMode) {
+                    val modeCap = when (s.speedMode) {
                         SpeedMode.MODE_1 -> 6.0
                         SpeedMode.MODE_2 -> 20.0
                         SpeedMode.MODE_3 -> 30.0
                     }
+                    // На кастомной прошивке override может поднимать лимит выше заводского.
+                    val cap = max(modeCap, s.tuningSpeedLimitOverrideKmh.toDouble())
                     targetSpeed = (targetSpeed + Random.nextDouble(-2.0, 3.0)).coerceIn(0.0, cap)
                 }
                 val speed = targetSpeed
-                val power = (speed * Random.nextDouble(20.0, 32.0)).toInt()
+                val currentCapFactor = s.tuningCurrentLimitAmps / 15.0
+                val power = (speed * Random.nextDouble(20.0, 32.0) * currentCapFactor).toInt()
                 val battery = max(0, s.batteryPercent - if (Random.nextInt(40) == 0) 1 else 0)
                 val trip = s.tripDistanceKm + speed * (0.4 / 3600.0)
                 _state.update {
@@ -84,5 +87,17 @@ class DemoSimulator(private val scope: CoroutineScope) {
 
     fun setMovementLock(locked: Boolean) {
         _state.update { it.copy(movementLocked = locked, speedKmh = if (locked) 0.0 else it.speedKmh) }
+    }
+
+    fun setCurrentLimit(amps: Int) {
+        _state.update { it.copy(tuningCurrentLimitAmps = amps) }
+    }
+
+    fun setSpeedLimitOverride(kmh: Int) {
+        _state.update { it.copy(tuningSpeedLimitOverrideKmh = kmh) }
+    }
+
+    fun setFieldWeakening(enabled: Boolean) {
+        _state.update { it.copy(tuningFieldWeakeningEnabled = enabled) }
     }
 }

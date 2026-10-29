@@ -6,6 +6,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,15 +32,18 @@ import com.ninebot.control.ui.screens.ControlScreen
 import com.ninebot.control.ui.screens.DashboardScreen
 import com.ninebot.control.ui.screens.DemoScreen
 import com.ninebot.control.ui.screens.SimpleDevice
+import com.ninebot.control.ui.screens.TuningScreen
 
 private sealed class Dest(val route: String, val label: String, val icon: ImageVector) {
     data object Connect : Dest("connect", "Подключение", Icons.Filled.Bluetooth)
     data object Control : Dest("control", "Управление", Icons.Filled.Tune)
     data object Dashboard : Dest("dashboard", "Панель", Icons.Filled.Dashboard)
+    data object Tuning : Dest("tuning", "Тюнинг", Icons.Filled.Speed)
     data object Demo : Dest("demo", "Demo-Mode", Icons.Filled.Science)
 }
 
-private val destinations = listOf(Dest.Connect, Dest.Control, Dest.Dashboard, Dest.Demo)
+private val destinations =
+    listOf(Dest.Connect, Dest.Control, Dest.Dashboard, Dest.Tuning, Dest.Demo)
 
 @Composable
 fun NinebotApp(bleManager: NinebotBleManager, demoSimulator: DemoSimulator) {
@@ -98,11 +102,22 @@ fun NinebotApp(bleManager: NinebotBleManager, demoSimulator: DemoSimulator) {
             composable(Dest.Dashboard.route) {
                 DashboardScreen(state = realState)
             }
+            composable(Dest.Tuning.route) {
+                TuningScreen(
+                    state = realState,
+                    onSetCurrentLimit = { bleManager.sendSetCurrentLimit(it) },
+                    onSetSpeedLimitOverride = { bleManager.sendSetSpeedLimitOverride(it) },
+                    onSetFieldWeakening = { bleManager.sendSetFieldWeakening(it) }
+                )
+            }
             composable(Dest.Demo.route) {
                 DemoScreen(
                     state = demoState,
                     onSelectMode = { demoSimulator.setSpeedMode(it) },
-                    onSetMovementLock = { demoSimulator.setMovementLock(it) }
+                    onSetMovementLock = { demoSimulator.setMovementLock(it) },
+                    onSetCurrentLimit = { demoSimulator.setCurrentLimit(it) },
+                    onSetSpeedLimitOverride = { demoSimulator.setSpeedLimitOverride(it) },
+                    onSetFieldWeakening = { demoSimulator.setFieldWeakening(it) }
                 )
             }
         }

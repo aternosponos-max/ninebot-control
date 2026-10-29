@@ -28,8 +28,23 @@ data class ScooterState(
     val speedMode: SpeedMode = SpeedMode.MODE_2,
     val movementLocked: Boolean = false,
     val lastRawPacketHex: String = "",
-    val log: List<String> = emptyList()
+    val log: List<String> = emptyList(),
+
+    // Параметры доступны только на самокатах с кастомной прошивкой (DRV и
+    // подобные), дающей доступ к этим регистрам. На заводской/шеринговой
+    // прошивке соответствующие пакеты просто не будут поняты контроллером.
+    val tuningCurrentLimitAmps: Int = 15,
+    val tuningSpeedLimitOverrideKmh: Int = 25,
+    val tuningFieldWeakeningEnabled: Boolean = false
 )
+
+/** Границы параметров тюнинга — используются UI как min/max слайдеров. */
+object TuningLimits {
+    const val CURRENT_MIN_A = 5
+    const val CURRENT_MAX_A = 45
+    const val SPEED_MIN_KMH = 6
+    const val SPEED_MAX_KMH = 55
+}
 
 /** Категории для карточек приборной панели. */
 enum class MetricCategory(val title: String) {

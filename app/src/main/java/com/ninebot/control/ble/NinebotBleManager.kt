@@ -154,6 +154,21 @@ class NinebotBleManager(private val context: Context) {
         writeFrame(NinebotProtocol.buildReadTelemetryFrame())
     }
 
+    fun sendSetCurrentLimit(amps: Int) {
+        writeFrame(NinebotProtocol.buildSetCurrentLimitFrame(amps))
+        _state.update { it.copy(tuningCurrentLimitAmps = amps) }
+    }
+
+    fun sendSetSpeedLimitOverride(kmh: Int) {
+        writeFrame(NinebotProtocol.buildSetSpeedLimitOverrideFrame(kmh))
+        _state.update { it.copy(tuningSpeedLimitOverrideKmh = kmh) }
+    }
+
+    fun sendSetFieldWeakening(enabled: Boolean) {
+        writeFrame(NinebotProtocol.buildSetFieldWeakeningFrame(enabled))
+        _state.update { it.copy(tuningFieldWeakeningEnabled = enabled) }
+    }
+
     private fun writeFrame(frame: ByteArray) {
         val g = gatt ?: return
         val char = writeCharacteristic ?: return

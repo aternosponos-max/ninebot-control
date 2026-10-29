@@ -32,7 +32,10 @@ import com.ninebot.control.ble.SpeedMode
 fun DemoScreen(
     state: ScooterState,
     onSelectMode: (SpeedMode) -> Unit,
-    onSetMovementLock: (Boolean) -> Unit
+    onSetMovementLock: (Boolean) -> Unit,
+    onSetCurrentLimit: (Int) -> Unit,
+    onSetSpeedLimitOverride: (Int) -> Unit,
+    onSetFieldWeakening: (Boolean) -> Unit
 ) {
     var tab by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxWidth()) {
@@ -55,11 +58,18 @@ fun DemoScreen(
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Приборная панель") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Управление") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Тюнинг") })
         }
 
         when (tab) {
             0 -> DashboardScreen(state = state)
             1 -> ControlScreen(state = state, onSelectMode = onSelectMode, onSetMovementLock = onSetMovementLock)
+            2 -> TuningScreen(
+                state = state,
+                onSetCurrentLimit = onSetCurrentLimit,
+                onSetSpeedLimitOverride = onSetSpeedLimitOverride,
+                onSetFieldWeakening = onSetFieldWeakening
+            )
         }
     }
 }

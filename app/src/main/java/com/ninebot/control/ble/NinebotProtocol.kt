@@ -36,6 +36,13 @@ object NinebotProtocol {
         const val SPEED_MODE: Byte = 0xB0.toByte()
         const val MOVEMENT_LOCK: Byte = 0xB2.toByte()
         const val TELEMETRY_BLOCK: Byte = 0xB5.toByte()
+
+        // Регистры тюнинга, актуальные только для контроллеров с кастомной
+        // DRV-подобной прошивкой. На заводской/шеринговой прошивке эти
+        // регистры отсутствуют — запись будет проигнорирована или вернёт NACK.
+        const val TUNING_CURRENT_LIMIT: Byte = 0xC0.toByte()
+        const val TUNING_SPEED_OVERRIDE: Byte = 0xC1.toByte()
+        const val TUNING_FIELD_WEAKENING: Byte = 0xC2.toByte()
     }
 
     fun buildSetSpeedModeFrame(mode: SpeedMode): ByteArray {
@@ -54,6 +61,24 @@ object NinebotProtocol {
 
     fun buildReadTelemetryFrame(): ByteArray {
         return buildFrame(CMD_READ, UnverifiedRegisters.TELEMETRY_BLOCK, byteArrayOf(0x00, 0x20))
+    }
+
+    /** Лимит тока в десятых долях ампера (например, 150 = 15.0 А). */
+    fun buildSetCurrentLimitFrame(amps: Int): ByteArray {
+        val tenths = (amps * 10).coerceIn(0, 0xFFFF)
+        val payload = byteArrayOf((tenths and 0xFF).toByte(), ((tenths shr 8) and 0xFF).toByte())
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_CURRENT_LIMIT, payload)
+    }
+
+    fun buildSetSpeedLimitOverrideFrame(kmh: Int): ByteArray {
+        val tenths = (kmh * 10).coerceIn(0, 0xFFFF)
+        val payload = byteArrayOf((tenths and 0xFF).toByte(), ((tenths shr 8) and 0xFF).toByte())
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_SPEED_OVERRIDE, payload)
+    }
+
+    fun buildSetFieldWeakeningFrame(enabled: Boolean): ByteArray {
+        val value: Byte = if (enabled) 0x01 else 0x00
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_FIELD_WEAKENING, byteArrayOf(value))
     }
 
     private fun buildFrame(cmd: Byte, arg: Byte, payload: ByteArray): ByteArray {
