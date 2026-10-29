@@ -1,0 +1,94 @@
+package com.ninebot.control.ble
+
+import com.ninebot.control.ble.ScooterState as State
+import kotlin.experimental.and
+
+/**
+ * Реализация кадрирования пакетов в духе семейства протоколов Ninebot/Xiaomi
+ * M365-ES-Max (общая для этой линейки структура, задокументированная
+ * сообществом по результатам реверс-инжиниринга). Это НЕ официальная
+ * спецификация производителя.
+ *
+ * Формат кадра:
+ *   0x5A 0xA5 | LEN | SRC | DST | CMD | ARG | PAYLOAD... | CHK_LO CHK_HI
+ *
+ * Контрольная сумма — 16-битное дополнение суммы всех байт после заголовка
+ * (LEN..конец payload), инвертированное.
+ *
+ * Регистровые адреса команд (ARG) для конкретной SNSC-прошивки не
+ * подтверждены — см. предупреждение в BleConstants. Используйте
+ * [verifiedOnly] = false только после сверки по журналу обмена.
+ */
+object NinebotProtocol {
+
+    private const val HEADER_1: Byte = 0x5A
+    private const val HEADER_2: Byte = 0xA5.toByte()
+
+    private const val SRC_APP: Byte = 0x20
+    private const val DST_CONTROLLER: Byte = 0x21
+
+    // Коды команд по общей схеме протокола (чтение/запись регистра).
+    private const val CMD_READ: Byte = 0x01
+    private const val CMD_WRITE: Byte = 0x03
+
+    // ПЛЕЙСХОЛДЕРЫ — требуют проверки на конкретном устройстве перед боевым использованием.
+    object UnverifiedRegisters {
+        const val SPEED_MODE: Byte = 0xB0.toByte()
+        const val MOVEMENT_LOCK: Byte = 0xB2.toByte()
+        const val TELEMETRY_BLOCK: Byte = 0xB5.toByte()
+    }
+
+    fun buildSetSpeedModeFrame(mode: SpeedMode): ByteArray {
+        val value: Byte = when (mode) {
+            SpeedMode.MODE_1 -> 0x01
+            SpeedMode.MODE_2 -> 0x02
+            SpeedMode.MODE_3 -> 0x03
+        }
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.SPEED_MODE, byteArrayOf(value))
+    }
+
+    fun buildSetMovementLockFrame(locked: Boolean): ByteArray {
+        val value: Byte = if (locked) 0x01 else 0x00
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.MOVEMENT_LOCK, byteArrayOf(value))
+    }
+
+    fun buildReadTelemetryFrame(): ByteArray {
+        return buildFrame(CMD_READ, UnverifiedRegisters.TELEMETRY_BLOCK, byteArrayOf(0x00, 0x20))
+    }
+
+    private fun buildFrame(cmd: Byte, arg: Byte, payload: ByteArray): ByteArray {
+        val body = byteArrayOf(SRC_APP, DST_CONTROLLER, cmd, arg) + payload
+        val len = body.size.toByte()
+        val afterHeader = byteArrayOf(len) + body
+        val checksum = computeChecksum(afterHeader)
+        return byteArrayOf(HEADER_1, HEADER_2) + afterHeader + checksum
+    }
+
+    private fun computeChecksum(data: ByteArray): ByteArray {
+        var sum = 0
+        for (b in data) {
+            sum += (b and 0xFF.toByte()).toInt() and 0xFF
+        }
+        val inverted = sum.inv() and 0xFFFF
+        return byteArrayOf((inverted and 0xFF).toByte(), ((inverted shr 8) and 0xFF).toByte())
+    }
+
+    fun toHex(bytes: ByteArray): String =
+        bytes.joinToString(" ") { String.format("%02X", it) }
+
+    /**
+     * Пытается разобрать входящий пакет телеметрии. Поскольку раскладка полей
+     * для SNSC не подтверждена, парсер возвращает null, если кадр не похож на
+     * валидный (неверный заголовок/чексумма) — реальные смещения полей нужно
+     * откалибровать по сырым данным в "Журнале" после первого подключения.
+     */
+    fun tryParseTelemetry(bytes: ByteArray): PartialTelemetry? {
+        if (bytes.size < 7) return null
+        if (bytes[0] != HEADER_1 || bytes[1] != HEADER_2) return null
+        // Разбор полезной нагрузки намеренно не реализован до калибровки по
+        // реальному устройству — возвращаем только факт валидного кадра.
+        return PartialTelemetry(raw = bytes)
+    }
+
+    data class PartialTelemetry(val raw: ByteArray)
+}
