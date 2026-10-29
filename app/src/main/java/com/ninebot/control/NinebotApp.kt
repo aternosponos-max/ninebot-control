@@ -1,6 +1,7 @@
 package com.ninebot.control
 
 import android.bluetooth.BluetoothDevice
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Dashboard
