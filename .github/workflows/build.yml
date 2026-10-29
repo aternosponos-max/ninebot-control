@@ -9,7 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       issues: write
     steps:
       - name: Checkout
@@ -79,3 +79,15 @@ jobs:
           name: ninebot-control-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publish as GitHub Release (direct download link)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk ninebot-control-debug.apk
+          gh release delete debug-latest --yes || true
+          git push origin :refs/tags/debug-latest || true
+          gh release create debug-latest ninebot-control-debug.apk \
+            --title "Debug APK (latest)" \
+            --notes "Автоматическая сборка из коммита ${{ github.sha }}. Обновляется при каждом пуше в main." \
+            --prerelease
