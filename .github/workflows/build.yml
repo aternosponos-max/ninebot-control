@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [ main, master, 'fix/**' ]
+    branches: [ main, master, 'fix/**', 'feature/**' ]
   workflow_dispatch: {}
 
 jobs:
@@ -81,6 +81,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish as GitHub Release (direct download link)
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
