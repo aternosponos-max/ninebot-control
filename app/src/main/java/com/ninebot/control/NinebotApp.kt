@@ -43,6 +43,7 @@ import com.ninebot.control.ui.screens.DemoScreen
 import com.ninebot.control.ui.screens.SimpleDevice
 import com.ninebot.control.ui.screens.StatisticsScreen
 import com.ninebot.control.ui.screens.TuningScreen
+import com.ninebot.control.ui.theme.ThemePalette
 
 private sealed class Dest(val route: String, val label: String, val icon: ImageVector) {
     data object Connect : Dest("connect", "Подключение", Icons.Filled.Bluetooth)
@@ -62,7 +63,7 @@ private val bottomDestinations =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NinebotApp(bleManager: NinebotBleManager, demoSimulator: DemoSimulator) {
+fun NinebotApp(bleManager: NinebotBleManager, demoSimulator: DemoSimulator, themePalette: ThemePalette, onThemePaletteChange: (ThemePalette) -> Unit) {
     val navController = rememberNavController()
     val realState by bleManager.state.collectAsState()
     val demoState by demoSimulator.state.collectAsState()
@@ -92,6 +93,21 @@ fun NinebotApp(bleManager: NinebotBleManager, demoSimulator: DemoSimulator) {
                                 navController.navigate(AUTHORS_ROUTE) { launchSingleTop = true }
                             }
                         )
+                        DropdownMenuItem(
+                            text = { Text("Цветовая тема") },
+                            onClick = { menuExpanded = true }
+                        )
+                        ThemePalette.values().forEach { palette ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(if (themePalette == palette) "✓ ${palette.label}" else palette.label)
+                                },
+                                onClick = {
+                                    onThemePaletteChange(palette)
+                                    menuExpanded = false
+                                }
+                            )
+                        }
                     }
                 }
             )
