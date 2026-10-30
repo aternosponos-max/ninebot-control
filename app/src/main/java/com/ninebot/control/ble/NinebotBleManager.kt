@@ -98,13 +98,44 @@ class NinebotBleManager(private val context: Context) {
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            val service = g.getService(BleConstants.SERVICE_UUID)
-            if (service == null) {
-                appendLog("Ожидаемый сервис ${BleConstants.SERVICE_UUID} не найден. Проверьте UUID вручную.")
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                appendLog("Ошибка обнаружения GATT-сервисов: status=$status")
                 _state.update { it.copy(connection = ConnectionStatus.ERROR) }
                 return
             }
+
+            // Collect evidence from the actual controller instead of assuming
+            // that every Ninebot exposes Nordic-UART UUIDs.
+            appendLog("GATT: найдено сервисов: ${g.services.size}")
+            g.services.forEach { service ->
+                appendLog("SERVICE ${service.uuid}")
+                service.characteristics.forEach { characteristic ->
+                    val properties = buildList {
+                        val p = characteristic.properties
+                        if (p and BluetoothGattCharacteristic.PROPERTY_READ != 0) add("READ")
+                        if (p and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) add("WRITE")
+                        if (p and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) add("WRITE_NR")
+                        if (p and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) add("NOTIFY")
+                        if (p and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) add("INDICATE")
+                    }.ifEmpty { listOf("no-common-properties") }.joinToString(",")
+                    appendLog("  CHAR ${characteristic.uuid} [${properties}]")
+                }
+            }
+
+            val service = g.getService(BleConstants.SERVICE_UUID)
+            if (service == null) {
+                writeCharacteristic = null
+                appendLog("Предполагаемый UART-сервис ${BleConstants.SERVICE_UUID} не найден.")
+                appendLog("Пока ничего не отправляю: пришлите этот журнал, чтобы определить реальные UUID.")
+                _state.update { it.copy(connection = ConnectionStatus.CONNECTED) }
+                return
+            }
+
             writeCharacteristic = service.getCharacteristic(BleConstants.WRITE_CHARACTERISTIC_UUID)
+            if (writeCharacteristic == null) {
+                appendLog("UART-сервис есть, но write-характеристика ${BleConstants.WRITE_CHARACTERISTIC_UUID} отсутствует.")
+            }
+
             val notifyChar = service.getCharacteristic(BleConstants.NOTIFY_CHARACTERISTIC_UUID)
             if (notifyChar != null) {
                 g.setCharacteristicNotification(notifyChar, true)
@@ -118,10 +149,14 @@ class NinebotBleManager(private val context: Context) {
                         @Suppress("DEPRECATION")
                         g.writeDescriptor(cccd)
                     }
+                } else {
+                    appendLog("У notify-характеристики нет CCCD-дескриптора.")
                 }
+            } else {
+                appendLog("UART notify-характеристика ${BleConstants.NOTIFY_CHARACTERISTIC_UUID} не найдена.")
             }
             _state.update { it.copy(connection = ConnectionStatus.CONNECTED) }
-            appendLog("Подключено. Сервис и характеристики найдены.")
+            appendLog("GATT-обнаружение завершено. TX разрешён только через известную write-характеристику.")
         }
 
         override fun onCharacteristicChanged(
@@ -145,9 +180,7 @@ class NinebotBleManager(private val context: Context) {
     }
 
     fun sendSetMovementLock(locked: Boolean) {
-        val frame = NinebotProtocol.buildSetMovementLockFrame(locked)
-        writeFrame(frame)
-        _state.update { it.copy(movementLocked = locked) }
+        appendLog("Команда блокировки движения отключена: для SNSC 2.3 не подтверждена. Это не замок батарейной деки.")
     }
 
     fun requestTelemetry() {
@@ -155,51 +188,61 @@ class NinebotBleManager(private val context: Context) {
     }
 
     fun sendSetPhaseCurrent(amps: Int) {
+        if (!NinebotProtocol.supportsShfwTuning) { appendLog("SHFW: запись фазного тока отключена — публичный протокол команды не подтверждён."); return }
         writeFrame(NinebotProtocol.buildSetPhaseCurrentFrame(amps))
         _state.update { it.copy(tuningPhaseCurrentAmps = amps, tuningProfile = TuningProfile.CUSTOM) }
     }
 
     fun sendSetBatteryCurrent(amps: Int) {
+        if (!NinebotProtocol.supportsShfwTuning) { appendLog("SHFW: запись батарейного тока отключена — публичный протокол команды не подтверждён."); return }
         writeFrame(NinebotProtocol.buildSetBatteryCurrentFrame(amps))
         _state.update { it.copy(tuningBatteryCurrentAmps = amps, tuningProfile = TuningProfile.CUSTOM) }
     }
 
     fun sendSetSpeedLimitOverride(kmh: Int) {
+        if (!NinebotProtocol.supportsShfwTuning) { appendLog("SHFW: запись лимита скорости отключена — публичный протокол команды не подтверждён."); return }
         writeFrame(NinebotProtocol.buildSetSpeedLimitOverrideFrame(kmh))
         _state.update { it.copy(tuningSpeedLimitOverrideKmh = kmh) }
     }
 
     fun sendSetFieldWeakening(enabled: Boolean) {
+        if (!NinebotProtocol.supportsShfwTuning) { appendLog("SHFW: запись ослабления поля отключена — публичный протокол команды не подтверждён."); return }
         writeFrame(NinebotProtocol.buildSetFieldWeakeningFrame(enabled))
         _state.update { it.copy(tuningFieldWeakeningEnabled = enabled) }
     }
 
     fun sendSetCruiseControl(enabled: Boolean) {
+        if (!NinebotProtocol.supportsShfwTuning) { appendLog("SHFW: запись круиз-контроля отключена — сначала нужно проверить поддержку этой прошивкой."); return }
         writeFrame(NinebotProtocol.buildSetCruiseControlFrame(enabled))
         _state.update { it.copy(cruiseControlEnabled = enabled) }
     }
 
     fun sendSetRegenCurrent(amps: Int) {
+        if (!NinebotProtocol.supportsShfwTuning) { appendLog("SHFW: запись тока рекуперации отключена — публичный протокол команды не подтверждён."); return }
         writeFrame(NinebotProtocol.buildSetRegenCurrentFrame(amps))
         _state.update { it.copy(tuningRegenCurrentAmps = amps, tuningProfile = TuningProfile.CUSTOM) }
     }
 
     fun sendSetBrakeBoost(percent: Int) {
+        if (!NinebotProtocol.supportsShfwTuning) { appendLog("SHFW: Brake Boost отключён — публичный протокол команды не подтверждён."); return }
         writeFrame(NinebotProtocol.buildSetBrakeBoostFrame(percent))
         _state.update { it.copy(tuningBrakeBoostPercent = percent) }
     }
 
     fun sendSetThrottleBoost(percent: Int) {
+        if (!NinebotProtocol.supportsShfwTuning) { appendLog("SHFW: Throttle Boost отключён — публичный протокол команды не подтверждён."); return }
         writeFrame(NinebotProtocol.buildSetThrottleBoostFrame(percent))
         _state.update { it.copy(tuningThrottleBoostPercent = percent) }
     }
 
     fun sendSetAccelBoost(percent: Int) {
+        if (!NinebotProtocol.supportsShfwTuning) { appendLog("SHFW: Acceleration Boost отключён — публичный протокол команды не подтверждён."); return }
         writeFrame(NinebotProtocol.buildSetAccelBoostFrame(percent))
         _state.update { it.copy(tuningAccelBoostPercent = percent) }
     }
 
     fun sendSelectProfile(profile: TuningProfile) {
+        if (!NinebotProtocol.supportsShfwTuning) { appendLog("SHFW-профили отключены: нет подтверждённого протокола записи настроек."); return }
         writeFrame(NinebotProtocol.buildSelectProfileFrame(profile))
         if (profile == TuningProfile.CUSTOM) {
             _state.update { it.copy(tuningProfile = profile) }
@@ -239,6 +282,10 @@ class NinebotBleManager(private val context: Context) {
     }
 
     private fun writeFrame(frame: ByteArray) {
+        if (frame.isEmpty()) {
+            appendLog("Команда не отправлена: для этой функции нет подтверждённого кадра протокола.")
+            return
+        }
         val g = gatt ?: return
         val char = writeCharacteristic ?: return
         appendLog("TX: ${NinebotProtocol.toHex(frame)}")

@@ -6,6 +6,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.ninebot.control.ui.theme.ThemePalette
 import androidx.lifecycle.lifecycleScope
 import com.ninebot.control.ble.NinebotBleManager
 import com.ninebot.control.demo.DemoSimulator
@@ -30,8 +35,14 @@ class MainActivity : ComponentActivity() {
         requestBlePermissions()
 
         setContent {
-            NinebotControlTheme {
-                NinebotApp(bleManager = bleManager, demoSimulator = demoSimulator)
+            var palette by remember { mutableStateOf(ThemePalette.GREEN) }
+            NinebotControlTheme(palette = palette) {
+                NinebotApp(
+                    bleManager = bleManager,
+                    demoSimulator = demoSimulator,
+                    themePalette = palette,
+                    onThemePaletteChange = { palette = it }
+                )
             }
         }
     }
