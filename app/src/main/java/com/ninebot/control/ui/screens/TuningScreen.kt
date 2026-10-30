@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -22,11 +23,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ninebot.control.ble.ScooterState
 import com.ninebot.control.ble.TuningLimits
+import com.ninebot.control.ble.TuningProfile
 import com.ninebot.control.ui.theme.BrandOrange
+import com.ninebot.control.ui.theme.BrandRed
 
 /**
  * Расширенные параметры тюнинга (аналог функций DRV и подобных кастомных
- * прошивок): лимит тока, override максимальной скорости, field weakening.
+ * прошивок): фазный и батарейный ток, override максимальной скорости,
+ * field weakening, круиз-контроль, ток рекуперации, бусты и профили.
  *
  * Работает только с самокатами, где уже установлена совместимая кастомная
  * прошивка контроллера — заводская/шеринговая прошивка эти регистры не
@@ -35,11 +39,16 @@ import com.ninebot.control.ui.theme.BrandOrange
 @Composable
 fun TuningScreen(
     state: ScooterState,
-    onSetCurrentLimit: (Int) -> Unit,
+    onSelectProfile: (TuningProfile) -> Unit,
+    onSetPhaseCurrent: (Int) -> Unit,
+    onSetBatteryCurrent: (Int) -> Unit,
     onSetSpeedLimitOverride: (Int) -> Unit,
     onSetFieldWeakening: (Boolean) -> Unit,
     onSetCruiseControl: (Boolean) -> Unit,
-    onSetRegenBraking: (Int) -> Unit
+    onSetRegenCurrent: (Int) -> Unit,
+    onSetBrakeBoost: (Int) -> Unit,
+    onSetThrottleBoost: (Int) -> Unit,
+    onSetAccelBoost: (Int) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -52,16 +61,20 @@ fun TuningScreen(
                     Icon(
                         imageVector = Icons.Filled.WarningAmber,
                         contentDescription = null,
-                        tint = BrandOrange
+                        tint = BrandRed
                     )
                     Text(
                         text = "  Эти параметры действуют только на контроллерах с установленной " +
-                            "совместимой кастомной прошивкой (DRV и аналоги). На заводской или " +
-                            "шеринговой прошивке пакеты будут проигнорированы — самокат просто не " +
-                            "ответит на эти регистры. Завышенный ток повышает нагрузку на " +
-                            "контроллер, мотор и батарею — меняйте значения постепенно и следите " +
-                            "за температурой.",
-                        style = MaterialTheme.typography.bodySmall
+                            "совместимой кастомной прошивкой (DRV и аналоги). Верхние пределы " +
+                            "тока на этом экране подняты до 120 А по явному запросу владельца " +
+                            "под усиленный контроллер. Это значительно выше типичных значений " +
+                            "даже для доработанного железа этой линейки (сообщество обычно " +
+                            "держится в районе 40–60 А) — ответственность за соответствие " +
+                            "реальным возможностям вашего конкретного контроллера лежит на вас. " +
+                            "Поднимайте значения постепенно и следите за температурой мотора, " +
+                            "контроллера и батареи.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = BrandRed
                     )
                 }
             }
@@ -69,32 +82,61 @@ fun TuningScreen(
 
         item {
             Text(
-                text = "Лимит тока",
+                text = "Профиль прошивки",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
         }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = "${state.tuningCurrentLimitAmps} А")
-                    Slider(
-                        value = state.tuningCurrentLimitAmps.toFloat(),
-                        onValueChange = { onSetCurrentLimit(it.toInt()) },
-                        valueRange = TuningLimits.CURRENT_MIN_A.toFloat()..TuningLimits.CURRENT_MAX_A.toFloat(),
-                        steps = TuningLimits.CURRENT_MAX_A - TuningLimits.CURRENT_MIN_A - 1
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TuningProfile.values().forEach { profile ->
+                    FilterChip(
+                        selected = state.tuningProfile == profile,
+                        onClick = { onSelectProfile(profile) },
+                        label = { Text(profile.label) }
                     )
                 }
             }
         }
-
         item {
             Text(
-                text = "Override максимальной скорости",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
+                text = "Выбор готового профиля сразу применяет его значения ко всем параметрам " +
+                    "ниже. Ручное изменение любого параметра переключает профиль на «Свой».",
+                style = MaterialTheme.typography.bodySmall
             )
         }
+
+        item { SectionTitle("Фазный ток") }
+        item {
+            AmpSliderCard(
+                value = state.tuningPhaseCurrentAmps,
+                min = TuningLimits.PHASE_CURRENT_MIN_A,
+                max = TuningLimits.PHASE_CURRENT_MAX_A,
+                onChange = onSetPhaseCurrent
+            )
+        }
+
+        item { SectionTitle("Батарейный ток") }
+        item {
+            AmpSliderCard(
+                value = state.tuningBatteryCurrentAmps,
+                min = TuningLimits.BATTERY_CURRENT_MIN_A,
+                max = TuningLimits.BATTERY_CURRENT_MAX_A,
+                onChange = onSetBatteryCurrent
+            )
+        }
+
+        item { SectionTitle("Ток рекуперации") }
+        item {
+            AmpSliderCard(
+                value = state.tuningRegenCurrentAmps,
+                min = TuningLimits.REGEN_CURRENT_MIN_A,
+                max = TuningLimits.REGEN_CURRENT_MAX_A,
+                onChange = onSetRegenCurrent
+            )
+        }
+
+        item { SectionTitle("Override максимальной скорости") }
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -109,85 +151,94 @@ fun TuningScreen(
             }
         }
 
+        item { SectionTitle("Брейк буст") }
         item {
-            Text(
-                text = "Field weakening",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(text = if (state.tuningFieldWeakeningEnabled) "Включено" else "Выключено")
-                        Text(
-                            text = "Повышает верхнюю скорость за счёт КПД и нагрева мотора",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    Switch(
-                        checked = state.tuningFieldWeakeningEnabled,
-                        onCheckedChange = onSetFieldWeakening
-                    )
-                }
-            }
+            PercentSliderCard(value = state.tuningBrakeBoostPercent, onChange = onSetBrakeBoost)
         }
 
+        item { SectionTitle("Буст на газ") }
         item {
-            Text(
-                text = "Круиз-контроль",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(text = if (state.cruiseControlEnabled) "Включён" else "Выключен")
-                        Text(
-                            text = "Удерживает текущую скорость без удержания газа",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    Switch(
-                        checked = state.cruiseControlEnabled,
-                        onCheckedChange = onSetCruiseControl
-                    )
-                }
-            }
+            PercentSliderCard(value = state.tuningThrottleBoostPercent, onChange = onSetThrottleBoost)
         }
 
+        item { SectionTitle("Буст на разгон") }
         item {
-            Text(
-                text = "Рекуперативное торможение",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
+            PercentSliderCard(value = state.tuningAccelBoostPercent, onChange = onSetAccelBoost)
+        }
+
+        item { SectionTitle("Field weakening") }
+        item {
+            ToggleCard(
+                title = if (state.tuningFieldWeakeningEnabled) "Включено" else "Выключено",
+                subtitle = "Повышает верхнюю скорость за счёт КПД и нагрева мотора",
+                checked = state.tuningFieldWeakeningEnabled,
+                onCheckedChange = onSetFieldWeakening
             )
         }
+
+        item { SectionTitle("Круиз-контроль") }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = "Уровень ${state.regenBrakingLevel} из ${TuningLimits.REGEN_MAX}")
-                    Slider(
-                        value = state.regenBrakingLevel.toFloat(),
-                        onValueChange = { onSetRegenBraking(it.toInt()) },
-                        valueRange = TuningLimits.REGEN_MIN.toFloat()..TuningLimits.REGEN_MAX.toFloat(),
-                        steps = TuningLimits.REGEN_MAX - TuningLimits.REGEN_MIN - 1
-                    )
-                    Text(
-                        text = "Выше — сильнее торможение двигателем и быстрее подзаряд батареи при спуске",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
+            ToggleCard(
+                title = if (state.cruiseControlEnabled) "Включён" else "Выключен",
+                subtitle = "Удерживает текущую скорость без удержания газа",
+                checked = state.cruiseControlEnabled,
+                onCheckedChange = onSetCruiseControl
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(text = text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+}
+
+@Composable
+private fun AmpSliderCard(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            val warn = value > max * 0.6
+            Text(
+                text = "$value А",
+                color = if (warn) BrandOrange else MaterialTheme.colorScheme.onSurface
+            )
+            Slider(
+                value = value.toFloat(),
+                onValueChange = { onChange(it.toInt()) },
+                valueRange = min.toFloat()..max.toFloat(),
+                steps = max - min - 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun PercentSliderCard(value: Int, onChange: (Int) -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "$value %")
+            Slider(
+                value = value.toFloat(),
+                onValueChange = { onChange(it.toInt()) },
+                valueRange = TuningLimits.BOOST_MIN_PERCENT.toFloat()..TuningLimits.BOOST_MAX_PERCENT.toFloat(),
+                steps = TuningLimits.BOOST_MAX_PERCENT - TuningLimits.BOOST_MIN_PERCENT - 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun ToggleCard(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(text = title)
+                Text(text = subtitle, style = MaterialTheme.typography.bodySmall)
             }
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
     }
 }

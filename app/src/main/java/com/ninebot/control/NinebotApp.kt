@@ -5,29 +5,37 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.QueryStats
-import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.ninebot.control.ble.NinebotBleManager
 import com.ninebot.control.demo.DemoSimulator
+import com.ninebot.control.ui.screens.AuthorsScreen
 import com.ninebot.control.ui.screens.ConnectScreen
 import com.ninebot.control.ui.screens.ControlScreen
 import com.ninebot.control.ui.screens.DashboardScreen
@@ -42,25 +50,57 @@ private sealed class Dest(val route: String, val label: String, val icon: ImageV
     data object Dashboard : Dest("dashboard", "Панель", Icons.Filled.Dashboard)
     data object Tuning : Dest("tuning", "Тюнинг", Icons.Filled.Speed)
     data object Statistics : Dest("statistics", "Статистика", Icons.Filled.QueryStats)
-    data object Demo : Dest("demo", "Demo-Mode", Icons.Filled.Science)
 }
 
-private val destinations =
-    listOf(Dest.Connect, Dest.Control, Dest.Dashboard, Dest.Tuning, Dest.Statistics, Dest.Demo)
+// Demo-Mode и Авторы убраны из нижней навигации — доступны через меню "⋮"
+// в правом верхнем углу, чтобы оставить снизу больше места под основные вкладки.
+private const val DEMO_ROUTE = "demo"
+private const val AUTHORS_ROUTE = "authors"
 
+private val bottomDestinations =
+    listOf(Dest.Connect, Dest.Control, Dest.Dashboard, Dest.Tuning, Dest.Statistics)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NinebotApp(bleManager: NinebotBleManager, demoSimulator: DemoSimulator) {
     val navController = rememberNavController()
     val realState by bleManager.state.collectAsState()
     val demoState by demoSimulator.state.collectAsState()
     val discovered by bleManager.discoveredDevices.collectAsState()
+    var menuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Ninebot Control") },
+                actions = {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "Ещё")
+                    }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Demo-Mode") },
+                            onClick = {
+                                menuExpanded = false
+                                navController.navigate(DEMO_ROUTE) { launchSingleTop = true }
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Авторы") },
+                            onClick = {
+                                menuExpanded = false
+                                navController.navigate(AUTHORS_ROUTE) { launchSingleTop = true }
+                            }
+                        )
+                    }
+                }
+            )
+        },
         bottomBar = {
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = backStackEntry?.destination?.route
             NavigationBar {
-                destinations.forEach { dest ->
+                bottomDestinations.forEach { dest ->
                     NavigationBarItem(
                         selected = currentRoute == dest.route,
                         onClick = {
@@ -108,11 +148,16 @@ fun NinebotApp(bleManager: NinebotBleManager, demoSimulator: DemoSimulator) {
             composable(Dest.Tuning.route) {
                 TuningScreen(
                     state = realState,
-                    onSetCurrentLimit = { bleManager.sendSetCurrentLimit(it) },
+                    onSelectProfile = { bleManager.sendSelectProfile(it) },
+                    onSetPhaseCurrent = { bleManager.sendSetPhaseCurrent(it) },
+                    onSetBatteryCurrent = { bleManager.sendSetBatteryCurrent(it) },
                     onSetSpeedLimitOverride = { bleManager.sendSetSpeedLimitOverride(it) },
                     onSetFieldWeakening = { bleManager.sendSetFieldWeakening(it) },
                     onSetCruiseControl = { bleManager.sendSetCruiseControl(it) },
-                    onSetRegenBraking = { bleManager.sendSetRegenBraking(it) }
+                    onSetRegenCurrent = { bleManager.sendSetRegenCurrent(it) },
+                    onSetBrakeBoost = { bleManager.sendSetBrakeBoost(it) },
+                    onSetThrottleBoost = { bleManager.sendSetThrottleBoost(it) },
+                    onSetAccelBoost = { bleManager.sendSetAccelBoost(it) }
                 )
             }
             composable(Dest.Statistics.route) {
@@ -121,18 +166,26 @@ fun NinebotApp(bleManager: NinebotBleManager, demoSimulator: DemoSimulator) {
                     onRefresh = { bleManager.requestDiagnostics() }
                 )
             }
-            composable(Dest.Demo.route) {
+            composable(DEMO_ROUTE) {
                 DemoScreen(
                     state = demoState,
                     onSelectMode = { demoSimulator.setSpeedMode(it) },
                     onSetMovementLock = { demoSimulator.setMovementLock(it) },
-                    onSetCurrentLimit = { demoSimulator.setCurrentLimit(it) },
+                    onSelectProfile = { demoSimulator.selectProfile(it) },
+                    onSetPhaseCurrent = { demoSimulator.setPhaseCurrent(it) },
+                    onSetBatteryCurrent = { demoSimulator.setBatteryCurrent(it) },
                     onSetSpeedLimitOverride = { demoSimulator.setSpeedLimitOverride(it) },
                     onSetFieldWeakening = { demoSimulator.setFieldWeakening(it) },
                     onSetCruiseControl = { demoSimulator.setCruiseControl(it) },
-                    onSetRegenBraking = { demoSimulator.setRegenBraking(it) },
+                    onSetRegenCurrent = { demoSimulator.setRegenCurrent(it) },
+                    onSetBrakeBoost = { demoSimulator.setBrakeBoost(it) },
+                    onSetThrottleBoost = { demoSimulator.setThrottleBoost(it) },
+                    onSetAccelBoost = { demoSimulator.setAccelBoost(it) },
                     onRefreshDiagnostics = { }
                 )
+            }
+            composable(AUTHORS_ROUTE) {
+                AuthorsScreen()
             }
         }
     }

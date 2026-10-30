@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.ninebot.control.ble.ScooterState
 import com.ninebot.control.ble.SpeedMode
+import com.ninebot.control.ble.TuningProfile
 
 /**
  * Demo-Mode: показывает весь функционал (приборная панель + управление)
@@ -33,11 +34,16 @@ fun DemoScreen(
     state: ScooterState,
     onSelectMode: (SpeedMode) -> Unit,
     onSetMovementLock: (Boolean) -> Unit,
-    onSetCurrentLimit: (Int) -> Unit,
+    onSelectProfile: (TuningProfile) -> Unit,
+    onSetPhaseCurrent: (Int) -> Unit,
+    onSetBatteryCurrent: (Int) -> Unit,
     onSetSpeedLimitOverride: (Int) -> Unit,
     onSetFieldWeakening: (Boolean) -> Unit,
     onSetCruiseControl: (Boolean) -> Unit,
-    onSetRegenBraking: (Int) -> Unit,
+    onSetRegenCurrent: (Int) -> Unit,
+    onSetBrakeBoost: (Int) -> Unit,
+    onSetThrottleBoost: (Int) -> Unit,
+    onSetAccelBoost: (Int) -> Unit,
     onRefreshDiagnostics: () -> Unit
 ) {
     var tab by remember { mutableIntStateOf(0) }
@@ -70,11 +76,16 @@ fun DemoScreen(
             1 -> ControlScreen(state = state, onSelectMode = onSelectMode, onSetMovementLock = onSetMovementLock)
             2 -> TuningScreen(
                 state = state,
-                onSetCurrentLimit = onSetCurrentLimit,
+                onSelectProfile = onSelectProfile,
+                onSetPhaseCurrent = onSetPhaseCurrent,
+                onSetBatteryCurrent = onSetBatteryCurrent,
                 onSetSpeedLimitOverride = onSetSpeedLimitOverride,
                 onSetFieldWeakening = onSetFieldWeakening,
                 onSetCruiseControl = onSetCruiseControl,
-                onSetRegenBraking = onSetRegenBraking
+                onSetRegenCurrent = onSetRegenCurrent,
+                onSetBrakeBoost = onSetBrakeBoost,
+                onSetThrottleBoost = onSetThrottleBoost,
+                onSetAccelBoost = onSetAccelBoost
             )
             3 -> StatisticsScreen(state = state, onRefresh = onRefreshDiagnostics)
         }

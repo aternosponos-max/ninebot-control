@@ -40,11 +40,16 @@ object NinebotProtocol {
         // Регистры тюнинга, актуальные только для контроллеров с кастомной
         // DRV-подобной прошивкой. На заводской/шеринговой прошивке эти
         // регистры отсутствуют — запись будет проигнорирована или вернёт NACK.
-        const val TUNING_CURRENT_LIMIT: Byte = 0xC0.toByte()
+        const val TUNING_PHASE_CURRENT: Byte = 0xC0.toByte()
+        const val TUNING_BATTERY_CURRENT: Byte = 0xC5.toByte()
         const val TUNING_SPEED_OVERRIDE: Byte = 0xC1.toByte()
         const val TUNING_FIELD_WEAKENING: Byte = 0xC2.toByte()
         const val TUNING_CRUISE_CONTROL: Byte = 0xC3.toByte()
-        const val TUNING_REGEN_BRAKING: Byte = 0xC4.toByte()
+        const val TUNING_REGEN_CURRENT: Byte = 0xC4.toByte()
+        const val TUNING_BRAKE_BOOST: Byte = 0xC6.toByte()
+        const val TUNING_THROTTLE_BOOST: Byte = 0xC7.toByte()
+        const val TUNING_ACCEL_BOOST: Byte = 0xC8.toByte()
+        const val TUNING_PROFILE_SELECT: Byte = 0xC9.toByte()
 
         // Регистры чтения диагностики для вкладки "Статистика".
         const val DIAG_CELL_VOLTAGES: Byte = 0xD0.toByte()
@@ -71,11 +76,18 @@ object NinebotProtocol {
         return buildFrame(CMD_READ, UnverifiedRegisters.TELEMETRY_BLOCK, byteArrayOf(0x00, 0x20))
     }
 
-    /** Лимит тока в десятых долях ампера (например, 150 = 15.0 А). */
-    fun buildSetCurrentLimitFrame(amps: Int): ByteArray {
+    /** Лимит фазного тока в десятых долях ампера (например, 150 = 15.0 А). */
+    fun buildSetPhaseCurrentFrame(amps: Int): ByteArray {
         val tenths = (amps * 10).coerceIn(0, 0xFFFF)
         val payload = byteArrayOf((tenths and 0xFF).toByte(), ((tenths shr 8) and 0xFF).toByte())
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_CURRENT_LIMIT, payload)
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_PHASE_CURRENT, payload)
+    }
+
+    /** Лимит батарейного тока в десятых долях ампера. */
+    fun buildSetBatteryCurrentFrame(amps: Int): ByteArray {
+        val tenths = (amps * 10).coerceIn(0, 0xFFFF)
+        val payload = byteArrayOf((tenths and 0xFF).toByte(), ((tenths shr 8) and 0xFF).toByte())
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_BATTERY_CURRENT, payload)
     }
 
     fun buildSetSpeedLimitOverrideFrame(kmh: Int): ByteArray {
@@ -94,9 +106,36 @@ object NinebotProtocol {
         return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_CRUISE_CONTROL, byteArrayOf(value))
     }
 
-    fun buildSetRegenBrakingFrame(level: Int): ByteArray {
-        val value = level.coerceIn(TuningLimits.REGEN_MIN, TuningLimits.REGEN_MAX).toByte()
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_REGEN_BRAKING, byteArrayOf(value))
+    /** Лимит тока рекуперации в десятых долях ампера. */
+    fun buildSetRegenCurrentFrame(amps: Int): ByteArray {
+        val tenths = (amps * 10).coerceIn(0, 0xFFFF)
+        val payload = byteArrayOf((tenths and 0xFF).toByte(), ((tenths shr 8) and 0xFF).toByte())
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_REGEN_CURRENT, payload)
+    }
+
+    fun buildSetBrakeBoostFrame(percent: Int): ByteArray {
+        val value = percent.coerceIn(0, 255).toByte()
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_BRAKE_BOOST, byteArrayOf(value))
+    }
+
+    fun buildSetThrottleBoostFrame(percent: Int): ByteArray {
+        val value = percent.coerceIn(0, 255).toByte()
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_THROTTLE_BOOST, byteArrayOf(value))
+    }
+
+    fun buildSetAccelBoostFrame(percent: Int): ByteArray {
+        val value = percent.coerceIn(0, 255).toByte()
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_ACCEL_BOOST, byteArrayOf(value))
+    }
+
+    fun buildSelectProfileFrame(profile: TuningProfile): ByteArray {
+        val value: Byte = when (profile) {
+            TuningProfile.ECO -> 0x01
+            TuningProfile.COMFORT -> 0x02
+            TuningProfile.SPORT -> 0x03
+            TuningProfile.CUSTOM -> 0x00
+        }
+        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_PROFILE_SELECT, byteArrayOf(value))
     }
 
     fun buildReadCellVoltagesFrame(): ByteArray =

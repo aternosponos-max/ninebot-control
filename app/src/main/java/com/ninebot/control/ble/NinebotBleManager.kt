@@ -154,9 +154,14 @@ class NinebotBleManager(private val context: Context) {
         writeFrame(NinebotProtocol.buildReadTelemetryFrame())
     }
 
-    fun sendSetCurrentLimit(amps: Int) {
-        writeFrame(NinebotProtocol.buildSetCurrentLimitFrame(amps))
-        _state.update { it.copy(tuningCurrentLimitAmps = amps) }
+    fun sendSetPhaseCurrent(amps: Int) {
+        writeFrame(NinebotProtocol.buildSetPhaseCurrentFrame(amps))
+        _state.update { it.copy(tuningPhaseCurrentAmps = amps, tuningProfile = TuningProfile.CUSTOM) }
+    }
+
+    fun sendSetBatteryCurrent(amps: Int) {
+        writeFrame(NinebotProtocol.buildSetBatteryCurrentFrame(amps))
+        _state.update { it.copy(tuningBatteryCurrentAmps = amps, tuningProfile = TuningProfile.CUSTOM) }
     }
 
     fun sendSetSpeedLimitOverride(kmh: Int) {
@@ -174,9 +179,50 @@ class NinebotBleManager(private val context: Context) {
         _state.update { it.copy(cruiseControlEnabled = enabled) }
     }
 
-    fun sendSetRegenBraking(level: Int) {
-        writeFrame(NinebotProtocol.buildSetRegenBrakingFrame(level))
-        _state.update { it.copy(regenBrakingLevel = level) }
+    fun sendSetRegenCurrent(amps: Int) {
+        writeFrame(NinebotProtocol.buildSetRegenCurrentFrame(amps))
+        _state.update { it.copy(tuningRegenCurrentAmps = amps, tuningProfile = TuningProfile.CUSTOM) }
+    }
+
+    fun sendSetBrakeBoost(percent: Int) {
+        writeFrame(NinebotProtocol.buildSetBrakeBoostFrame(percent))
+        _state.update { it.copy(tuningBrakeBoostPercent = percent) }
+    }
+
+    fun sendSetThrottleBoost(percent: Int) {
+        writeFrame(NinebotProtocol.buildSetThrottleBoostFrame(percent))
+        _state.update { it.copy(tuningThrottleBoostPercent = percent) }
+    }
+
+    fun sendSetAccelBoost(percent: Int) {
+        writeFrame(NinebotProtocol.buildSetAccelBoostFrame(percent))
+        _state.update { it.copy(tuningAccelBoostPercent = percent) }
+    }
+
+    fun sendSelectProfile(profile: TuningProfile) {
+        writeFrame(NinebotProtocol.buildSelectProfileFrame(profile))
+        if (profile == TuningProfile.CUSTOM) {
+            _state.update { it.copy(tuningProfile = profile) }
+            return
+        }
+        val preset = TuningPresets.PRESETS[profile] ?: return
+        // Применяем пресет локально и рассылаем его как набор обычных команд,
+        // чтобы контроллер получил те же регистры, что и при ручной настройке.
+        writeFrame(NinebotProtocol.buildSetPhaseCurrentFrame(preset.phaseCurrentAmps))
+        writeFrame(NinebotProtocol.buildSetBatteryCurrentFrame(preset.batteryCurrentAmps))
+        writeFrame(NinebotProtocol.buildSetSpeedLimitOverrideFrame(preset.speedLimitOverrideKmh))
+        writeFrame(NinebotProtocol.buildSetRegenCurrentFrame(preset.regenCurrentAmps))
+        writeFrame(NinebotProtocol.buildSetFieldWeakeningFrame(preset.fieldWeakeningEnabled))
+        _state.update {
+            it.copy(
+                tuningProfile = profile,
+                tuningPhaseCurrentAmps = preset.phaseCurrentAmps,
+                tuningBatteryCurrentAmps = preset.batteryCurrentAmps,
+                tuningSpeedLimitOverrideKmh = preset.speedLimitOverrideKmh,
+                tuningRegenCurrentAmps = preset.regenCurrentAmps,
+                tuningFieldWeakeningEnabled = preset.fieldWeakeningEnabled
+            )
+        }
     }
 
     /**

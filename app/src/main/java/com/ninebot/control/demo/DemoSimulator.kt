@@ -3,6 +3,8 @@ package com.ninebot.control.demo
 import com.ninebot.control.ble.ConnectionStatus
 import com.ninebot.control.ble.ScooterState
 import com.ninebot.control.ble.SpeedMode
+import com.ninebot.control.ble.TuningPresets
+import com.ninebot.control.ble.TuningProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,9 +72,10 @@ class DemoSimulator(private val scope: CoroutineScope) {
                     targetSpeed = (targetSpeed + delta).coerceIn(0.0, cap)
                 }
                 val speed = targetSpeed
-                val currentCapFactor = s.tuningCurrentLimitAmps / 15.0
-                val power = (speed * Random.nextDouble(20.0, 32.0) * currentCapFactor).toInt()
-                val regenSlow = s.regenBrakingLevel * 2
+                val currentCapFactor = s.tuningPhaseCurrentAmps / 30.0
+                val boostFactor = 1.0 + s.tuningThrottleBoostPercent / 200.0
+                val power = (speed * Random.nextDouble(20.0, 32.0) * currentCapFactor * boostFactor).toInt()
+                val regenSlow = (s.tuningRegenCurrentAmps / 5).coerceAtMost(10)
                 val battery = max(0, s.batteryPercent - if (Random.nextInt(40 + regenSlow) == 0) 1 else 0)
                 val trip = s.tripDistanceKm + speed * (0.4 / 3600.0)
 
@@ -115,12 +118,16 @@ class DemoSimulator(private val scope: CoroutineScope) {
         _state.update { it.copy(movementLocked = locked, speedKmh = if (locked) 0.0 else it.speedKmh) }
     }
 
-    fun setCurrentLimit(amps: Int) {
-        _state.update { it.copy(tuningCurrentLimitAmps = amps) }
+    fun setPhaseCurrent(amps: Int) {
+        _state.update { it.copy(tuningPhaseCurrentAmps = amps, tuningProfile = TuningProfile.CUSTOM) }
+    }
+
+    fun setBatteryCurrent(amps: Int) {
+        _state.update { it.copy(tuningBatteryCurrentAmps = amps, tuningProfile = TuningProfile.CUSTOM) }
     }
 
     fun setSpeedLimitOverride(kmh: Int) {
-        _state.update { it.copy(tuningSpeedLimitOverrideKmh = kmh) }
+        _state.update { it.copy(tuningSpeedLimitOverrideKmh = kmh, tuningProfile = TuningProfile.CUSTOM) }
     }
 
     fun setFieldWeakening(enabled: Boolean) {
@@ -131,7 +138,37 @@ class DemoSimulator(private val scope: CoroutineScope) {
         _state.update { it.copy(cruiseControlEnabled = enabled) }
     }
 
-    fun setRegenBraking(level: Int) {
-        _state.update { it.copy(regenBrakingLevel = level) }
+    fun setRegenCurrent(amps: Int) {
+        _state.update { it.copy(tuningRegenCurrentAmps = amps, tuningProfile = TuningProfile.CUSTOM) }
+    }
+
+    fun setBrakeBoost(percent: Int) {
+        _state.update { it.copy(tuningBrakeBoostPercent = percent) }
+    }
+
+    fun setThrottleBoost(percent: Int) {
+        _state.update { it.copy(tuningThrottleBoostPercent = percent) }
+    }
+
+    fun setAccelBoost(percent: Int) {
+        _state.update { it.copy(tuningAccelBoostPercent = percent) }
+    }
+
+    fun selectProfile(profile: TuningProfile) {
+        if (profile == TuningProfile.CUSTOM) {
+            _state.update { it.copy(tuningProfile = profile) }
+            return
+        }
+        val preset = TuningPresets.PRESETS[profile] ?: return
+        _state.update {
+            it.copy(
+                tuningProfile = profile,
+                tuningPhaseCurrentAmps = preset.phaseCurrentAmps,
+                tuningBatteryCurrentAmps = preset.batteryCurrentAmps,
+                tuningSpeedLimitOverrideKmh = preset.speedLimitOverrideKmh,
+                tuningRegenCurrentAmps = preset.regenCurrentAmps,
+                tuningFieldWeakeningEnabled = preset.fieldWeakeningEnabled
+            )
+        }
     }
 }
