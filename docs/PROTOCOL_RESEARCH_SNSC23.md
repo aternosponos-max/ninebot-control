@@ -1,36 +1,40 @@
-# SNSC 2.3 / G30 BLE protocol research
+# SNSC 2.3 / G30 protocol research and implementation status
 
-## Findings (2026-10-30)
+Updated: 2026-10-30
 
-The current `NinebotProtocol.kt` implementation is not a working SHFW protocol. It invents register IDs for movement lock, tuning, diagnostics and telemetry and assumes a frame format without performing authentication or validating responses. The UI currently changes local state immediately after writing, which can falsely imply that the scooter accepted a command.
+## Critical finding: SHFW itself is not open source
 
-### Public references
+Public SHFW documentation describes features and configuration through ScooterHacking Utility, but the SHFW firmware/API implementation is closed-source. A public, verified SHFW live-tuning command map for phase current, battery current, field weakening, brake/throttle boost, profile switching, or the SNSC 2.3 deck latch was not found. We must not present guessed register IDs as a working SHFW implementation.
 
-- `scooter-tuning-db/ninebot.json`: community map lists G30-family registers `0x74` (riding mode), `0x93` (speed limit), `0xB5` (battery percentage), `0xB7` (odometer), and `0xB9` (trip mileage). It warns to read before writing and notes that firmware/version coverage varies.
-- `sinimiini/scooter-tuuner`: documents a `5A A5` register frame, checksum `0xFFFF XOR sum(inner)`, and example registers for some G30-like controllers. This is a separate community implementation, not proof that the SNSC 2.3 + flashed G30 firmware supports every register.
-- `MR-Berglund/loll`: describes a different `A3 A4` command family with per-frame random masking and CRC8. It lists `0x81` as “Eject Battery”, but the repository is a capture-tool skeleton and does not establish that this command actuates the physical deck lock on SNSC 2.3.
+References:
+- Official ScooterHacking site / SHFW overview: https://cfw.sh/
+- Utility: https://utility.cfw.sh/
+- SHFW overview and source status: https://joeybabcock.me/wiki/SHFW
+- Public G30 protocol reconstruction: https://github.com/Vicy-DE/Ninebot-G30-Custom/blob/main/docs/protocol.md
+- Public G30 register map: https://github.com/Vicy-DE/Ninebot-G30-Custom/blob/main/docs/REGISTER_MAP.md
+- Community tuning map (confidence varies by register/model): https://github.com/jx-grxf/scooter-tuning-db
 
-## Important protocol separation
+## What was wrong in the previous app implementation
 
-SHFW is firmware plus its supported settings, not a universal BLE register list. The app must not label invented `0xC0–0xC9` registers as SHFW settings. A register map for a G30-family controller is not automatically a map for the deck-lock actuator.
+The previous `NinebotProtocol.kt` used invented register IDs `0xB0–0xD3` for lock, telemetry, tuning, and diagnostics; it also treated the payload length and command values incorrectly for the documented G30 framing. Its parser checked only the header and did not verify length/checksum. The BLE manager updated local UI state immediately even if the controller had not acknowledged a write.
 
-## Deck lock
+## Changes in this branch
 
-No verified, model-specific SNSC 2.3 deck-lock command has been found in the reviewed public sources. `0x81` / “Eject Battery” is only a lead for further verification, not a safe command to send: the required `A3 A4` authentication/masking and CRC8 path is different from the current `5A A5` builder.
+- Implemented the documented `5A A5` frame layout: LEN counts payload bytes only, source address `0x3E` (app), destination `0x20` (ESC), and checksum `sum(LEN..payload) XOR 0xFFFF`, little-endian.
+- Uses documented G30 read command `0x01` and write-with-response command `0x02`.
+- The speed-mode setter uses the documented G30 riding-mode register `0x75` with values Eco=0, Drive=1, Sport=2.
+- Adds response parsing with frame-length and checksum validation.
+- Disables all guessed SHFW tuning writes and the guessed movement-lock operation. The deck/battery latch is not the same thing as the scooter movement lock.
+- Does not claim that a valid generic G30 frame proves SNSC 2.3 compatibility.
 
-Do not add a guessed write to the battery/deck lock. Confirm it against a capture from a compatible app/controller or a protocol implementation tested on the same hardware/firmware first.
+## Remaining blockers before calling this "working"
 
-## Required engineering changes
+1. **BLE transport/GATT UUIDs:** the app currently uses Nordic UART Service UUIDs. These must be verified against the actual Bluetooth service/characteristics advertised by the user's controller/dashboard. G30 UART framing does not prove the BLE GATT service is Nordic UART.
+2. **SNSC 2.3 firmware compatibility:** standard G30 register semantics must be verified against the exact controller firmware that is currently flashed.
+3. **SHFW live tuning:** requires documented commands or a captured request/response session from a compatible SHU/Luna + controller combination. Standard G30 registers are not a substitute for SHFW's private configuration interface.
+4. **Acknowledgement/readback:** state should be updated only after the correct response command/register/value is received. Current UI/manager still needs a request queue and readback-based state reconciliation.
+5. **Deck lock:** no verified SNSC 2.3 battery/deck-latch command has been identified. Do not send the `0x81` “Eject Battery” lead from unrelated `A3 A4` protocol captures through the `5A A5` builder.
 
-1. Implement the actual authentication/session flow for the detected BLE generation.
-2. Use a model/firmware-specific register map.
-3. Validate response framing/checksum and parse returned register values.
-4. Update UI state only after a valid ACK/readback; otherwise show a command failure.
-5. Keep unverified tuning and deck-lock operations disabled rather than sending placeholder packets.
+## Safety and validation
 
-## Sources
-
-- https://github.com/jx-grxf/scooter-tuning-db
-- https://github.com/sinimiini/scooter-tuuner
-- https://github.com/MR-Berglund/loll
-- https://github.com/scooterhacking/wiki/blob/main/pages/shfw020guide.txt
+Tuning writes remain disabled until their actual protocol is verified. Do not test guessed current or field-weakening commands on a powered scooter. Validate packet framing with captured read-only traffic first, then confirm register reads, acknowledgements, and readback on the exact controller/firmware.
