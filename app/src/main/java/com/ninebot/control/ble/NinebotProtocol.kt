@@ -1,188 +1,147 @@
 package com.ninebot.control.ble
 
-import com.ninebot.control.ble.ScooterState as State
-import kotlin.experimental.and
-
 /**
- * Реализация кадрирования пакетов в духе семейства протоколов Ninebot/Xiaomi
- * M365-ES-Max (общая для этой линейки структура, задокументированная
- * сообществом по результатам реверс-инжиниринга). Это НЕ официальная
- * спецификация производителя.
+ * Open Ninebot UART packet framing for the G30 family.
  *
- * Формат кадра:
- *   0x5A 0xA5 | LEN | SRC | DST | CMD | ARG | PAYLOAD... | CHK_LO CHK_HI
+ * This is NOT an implementation of the closed-source SHFW tuning API. Public
+ * sources document standard G30 registers, but do not document SHFW live-tuning
+ * commands. Unverified tuning writes are therefore deliberately disabled.
  *
- * Контрольная сумма — 16-битное дополнение суммы всех байт после заголовка
- * (LEN..конец payload), инвертированное.
+ * Frame: 5A A5 | payloadLength | src | dst | cmd | arg | payload | checksumLE
+ * LEN counts payload only; total frame size = LEN + 9.
+ * Checksum = (sum(bytes from LEN through payload) XOR FFFF), little-endian.
  *
- * Регистровые адреса команд (ARG) для конкретной SNSC-прошивки не
- * подтверждены — см. предупреждение в BleConstants. Используйте
- * [verifiedOnly] = false только после сверки по журналу обмена.
+ * References:
+ * https://github.com/Vicy-DE/Ninebot-G30-Custom/blob/main/docs/protocol.md
+ * https://github.com/Vicy-DE/Ninebot-G30-Custom/blob/main/docs/REGISTER_MAP.md
  */
 object NinebotProtocol {
+    private const val HEADER_1 = 0x5A
+    private const val HEADER_2 = 0xA5
+    private const val SRC_APP = 0x3E
+    private const val DST_ESC = 0x20
 
-    private const val HEADER_1: Byte = 0x5A
-    private const val HEADER_2: Byte = 0xA5.toByte()
+    private const val CMD_READ = 0x01
+    private const val CMD_WRITE_ACK = 0x02
 
-    private const val SRC_APP: Byte = 0x20
-    private const val DST_CONTROLLER: Byte = 0x21
+    const val supportsShfwTuning: Boolean = false
 
-    // Коды команд по общей схеме протокола (чтение/запись регистра).
-    private const val CMD_READ: Byte = 0x01
-    private const val CMD_WRITE: Byte = 0x03
-
-    // ПЛЕЙСХОЛДЕРЫ — требуют проверки на конкретном устройстве перед боевым использованием.
-    object UnverifiedRegisters {
-        const val SPEED_MODE: Byte = 0xB0.toByte()
-        const val MOVEMENT_LOCK: Byte = 0xB2.toByte()
-        const val TELEMETRY_BLOCK: Byte = 0xB5.toByte()
-
-        // Регистры тюнинга, актуальные только для контроллеров с кастомной
-        // DRV-подобной прошивкой. На заводской/шеринговой прошивке эти
-        // регистры отсутствуют — запись будет проигнорирована или вернёт NACK.
-        const val TUNING_PHASE_CURRENT: Byte = 0xC0.toByte()
-        const val TUNING_BATTERY_CURRENT: Byte = 0xC5.toByte()
-        const val TUNING_SPEED_OVERRIDE: Byte = 0xC1.toByte()
-        const val TUNING_FIELD_WEAKENING: Byte = 0xC2.toByte()
-        const val TUNING_CRUISE_CONTROL: Byte = 0xC3.toByte()
-        const val TUNING_REGEN_CURRENT: Byte = 0xC4.toByte()
-        const val TUNING_BRAKE_BOOST: Byte = 0xC6.toByte()
-        const val TUNING_THROTTLE_BOOST: Byte = 0xC7.toByte()
-        const val TUNING_ACCEL_BOOST: Byte = 0xC8.toByte()
-        const val TUNING_PROFILE_SELECT: Byte = 0xC9.toByte()
-
-        // Регистры чтения диагностики для вкладки "Статистика".
-        const val DIAG_CELL_VOLTAGES: Byte = 0xD0.toByte()
-        const val DIAG_ERROR_CODES: Byte = 0xD1.toByte()
-        const val DIAG_FIRMWARE_INFO: Byte = 0xD2.toByte()
-        const val DIAG_RIDE_STATS: Byte = 0xD3.toByte()
+    object Registers {
+        const val BATTERY_LEVEL = 0x22
+        const val CURRENT_SPEED = 0x26
+        const val TOTAL_DISTANCE = 0x29
+        const val BATTERY_VOLTAGE = 0x48
+        const val BATTERY_CURRENT = 0x49
+        const val RIDING_MODE = 0x75
+        const val NORMAL_SPEED_LIMIT = 0x73
+        const val ECO_SPEED_LIMIT = 0x74
+        const val KERS_LEVEL = 0x7B
+        const val CRUISE_CONTROL = 0x7C
     }
+
+    data class RegisterResponse(
+        val command: Int,
+        val register: Int,
+        val payload: ByteArray,
+        val source: Int,
+        val destination: Int
+    )
 
     fun buildSetSpeedModeFrame(mode: SpeedMode): ByteArray {
-        val value: Byte = when (mode) {
-            SpeedMode.MODE_1 -> 0x01
-            SpeedMode.MODE_2 -> 0x02
-            SpeedMode.MODE_3 -> 0x03
+        val value = when (mode) {
+            SpeedMode.MODE_1 -> 0x00 // Eco
+            SpeedMode.MODE_2 -> 0x01 // Drive/Normal
+            SpeedMode.MODE_3 -> 0x02 // Sport
         }
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.SPEED_MODE, byteArrayOf(value))
+        return buildWriteRegisterFrame(Registers.RIDING_MODE, byteArrayOf(value.toByte()))
     }
 
-    fun buildSetMovementLockFrame(locked: Boolean): ByteArray {
-        val value: Byte = if (locked) 0x01 else 0x00
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.MOVEMENT_LOCK, byteArrayOf(value))
+    // This is a scooter movement lock, not the physical battery/deck latch.
+    // Exact behavior on SNSC 2.3 is unverified, so no command is emitted.
+    fun buildSetMovementLockFrame(locked: Boolean): ByteArray = ByteArray(0)
+
+    /** Read known battery-level register 0x22 as a basic protocol check. */
+    fun buildReadTelemetryFrame(): ByteArray = buildReadRegisterFrame(Registers.BATTERY_LEVEL, 2)
+
+    fun buildReadRegisterFrame(register: Int, length: Int): ByteArray {
+        require(register in 0..0xFF)
+        require(length in 1..0xFF)
+        return buildFrame(CMD_READ, register, byteArrayOf(length.toByte(), 0x00))
     }
 
-    fun buildReadTelemetryFrame(): ByteArray {
-        return buildFrame(CMD_READ, UnverifiedRegisters.TELEMETRY_BLOCK, byteArrayOf(0x00, 0x20))
+    fun buildWriteRegisterFrame(register: Int, payload: ByteArray): ByteArray {
+        require(register in 0..0xFF)
+        require(payload.isNotEmpty() && payload.size <= 0xFF)
+        return buildFrame(CMD_WRITE_ACK, register, payload)
     }
 
-    /** Лимит фазного тока в десятых долях ампера (например, 150 = 15.0 А). */
-    fun buildSetPhaseCurrentFrame(amps: Int): ByteArray {
-        val tenths = (amps * 10).coerceIn(0, 0xFFFF)
-        val payload = byteArrayOf((tenths and 0xFF).toByte(), ((tenths shr 8) and 0xFF).toByte())
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_PHASE_CURRENT, payload)
-    }
+    // SHFW-specific tuning IDs are not publicly verified. Never send guessed 0xC0–0xC9 writes.
+    @Deprecated("SHFW protocol is not public/verified; write disabled")
+    fun buildSetPhaseCurrentFrame(amps: Int): ByteArray = ByteArray(0)
+    @Deprecated("SHFW protocol is not public/verified; write disabled")
+    fun buildSetBatteryCurrentFrame(amps: Int): ByteArray = ByteArray(0)
+    @Deprecated("SHFW protocol is not public/verified; write disabled")
+    fun buildSetSpeedLimitOverrideFrame(kmh: Int): ByteArray = ByteArray(0)
+    @Deprecated("SHFW protocol is not public/verified; write disabled")
+    fun buildSetFieldWeakeningFrame(enabled: Boolean): ByteArray = ByteArray(0)
+    @Deprecated("SHFW protocol is not public/verified; write disabled")
+    fun buildSetCruiseControlFrame(enabled: Boolean): ByteArray = ByteArray(0)
+    @Deprecated("SHFW protocol is not public/verified; write disabled")
+    fun buildSetRegenCurrentFrame(amps: Int): ByteArray = ByteArray(0)
+    @Deprecated("SHFW protocol is not public/verified; write disabled")
+    fun buildSetBrakeBoostFrame(percent: Int): ByteArray = ByteArray(0)
+    @Deprecated("SHFW protocol is not public/verified; write disabled")
+    fun buildSetThrottleBoostFrame(percent: Int): ByteArray = ByteArray(0)
+    @Deprecated("SHFW protocol is not public/verified; write disabled")
+    fun buildSetAccelBoostFrame(percent: Int): ByteArray = ByteArray(0)
+    @Deprecated("SHFW profile protocol is not public/verified; write disabled")
+    fun buildSelectProfileFrame(profile: TuningProfile): ByteArray = ByteArray(0)
 
-    /** Лимит батарейного тока в десятых долях ампера. */
-    fun buildSetBatteryCurrentFrame(amps: Int): ByteArray {
-        val tenths = (amps * 10).coerceIn(0, 0xFFFF)
-        val payload = byteArrayOf((tenths and 0xFF).toByte(), ((tenths shr 8) and 0xFF).toByte())
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_BATTERY_CURRENT, payload)
-    }
+    fun buildReadCellVoltagesFrame(): ByteArray = ByteArray(0)
+    fun buildReadErrorCodesFrame(): ByteArray = buildReadRegisterFrame(0x1B, 2)
+    fun buildReadFirmwareInfoFrame(): ByteArray = buildReadRegisterFrame(0x1A, 2)
+    fun buildReadRideStatsFrame(): ByteArray = buildReadRegisterFrame(Registers.TOTAL_DISTANCE, 4)
 
-    fun buildSetSpeedLimitOverrideFrame(kmh: Int): ByteArray {
-        val tenths = (kmh * 10).coerceIn(0, 0xFFFF)
-        val payload = byteArrayOf((tenths and 0xFF).toByte(), ((tenths shr 8) and 0xFF).toByte())
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_SPEED_OVERRIDE, payload)
-    }
-
-    fun buildSetFieldWeakeningFrame(enabled: Boolean): ByteArray {
-        val value: Byte = if (enabled) 0x01 else 0x00
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_FIELD_WEAKENING, byteArrayOf(value))
-    }
-
-    fun buildSetCruiseControlFrame(enabled: Boolean): ByteArray {
-        val value: Byte = if (enabled) 0x01 else 0x00
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_CRUISE_CONTROL, byteArrayOf(value))
-    }
-
-    /** Лимит тока рекуперации в десятых долях ампера. */
-    fun buildSetRegenCurrentFrame(amps: Int): ByteArray {
-        val tenths = (amps * 10).coerceIn(0, 0xFFFF)
-        val payload = byteArrayOf((tenths and 0xFF).toByte(), ((tenths shr 8) and 0xFF).toByte())
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_REGEN_CURRENT, payload)
-    }
-
-    fun buildSetBrakeBoostFrame(percent: Int): ByteArray {
-        val value = percent.coerceIn(0, 255).toByte()
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_BRAKE_BOOST, byteArrayOf(value))
-    }
-
-    fun buildSetThrottleBoostFrame(percent: Int): ByteArray {
-        val value = percent.coerceIn(0, 255).toByte()
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_THROTTLE_BOOST, byteArrayOf(value))
-    }
-
-    fun buildSetAccelBoostFrame(percent: Int): ByteArray {
-        val value = percent.coerceIn(0, 255).toByte()
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_ACCEL_BOOST, byteArrayOf(value))
-    }
-
-    fun buildSelectProfileFrame(profile: TuningProfile): ByteArray {
-        val value: Byte = when (profile) {
-            TuningProfile.ECO -> 0x01
-            TuningProfile.COMFORT -> 0x02
-            TuningProfile.SPORT -> 0x03
-            TuningProfile.CUSTOM -> 0x00
-        }
-        return buildFrame(CMD_WRITE, UnverifiedRegisters.TUNING_PROFILE_SELECT, byteArrayOf(value))
-    }
-
-    fun buildReadCellVoltagesFrame(): ByteArray =
-        buildFrame(CMD_READ, UnverifiedRegisters.DIAG_CELL_VOLTAGES, byteArrayOf(0x00, 0x20))
-
-    fun buildReadErrorCodesFrame(): ByteArray =
-        buildFrame(CMD_READ, UnverifiedRegisters.DIAG_ERROR_CODES, byteArrayOf(0x00, 0x10))
-
-    fun buildReadFirmwareInfoFrame(): ByteArray =
-        buildFrame(CMD_READ, UnverifiedRegisters.DIAG_FIRMWARE_INFO, byteArrayOf(0x00, 0x20))
-
-    fun buildReadRideStatsFrame(): ByteArray =
-        buildFrame(CMD_READ, UnverifiedRegisters.DIAG_RIDE_STATS, byteArrayOf(0x00, 0x10))
-
-    private fun buildFrame(cmd: Byte, arg: Byte, payload: ByteArray): ByteArray {
-        val body = byteArrayOf(SRC_APP, DST_CONTROLLER, cmd, arg) + payload
-        val len = body.size.toByte()
-        val afterHeader = byteArrayOf(len) + body
-        val checksum = computeChecksum(afterHeader)
-        return byteArrayOf(HEADER_1, HEADER_2) + afterHeader + checksum
+    private fun buildFrame(cmd: Int, register: Int, payload: ByteArray): ByteArray {
+        val body = byteArrayOf(
+            payload.size.toByte(), SRC_APP.toByte(), DST_ESC.toByte(),
+            cmd.toByte(), register.toByte()
+        ) + payload
+        val checksum = computeChecksum(body)
+        return byteArrayOf(HEADER_1.toByte(), HEADER_2.toByte()) + body + checksum
     }
 
     private fun computeChecksum(data: ByteArray): ByteArray {
         var sum = 0
-        for (b in data) {
-            sum += (b and 0xFF.toByte()).toInt() and 0xFF
-        }
-        val inverted = sum.inv() and 0xFFFF
-        return byteArrayOf((inverted and 0xFF).toByte(), ((inverted shr 8) and 0xFF).toByte())
+        data.forEach { sum = (sum + (it.toInt() and 0xFF)) and 0xFFFF }
+        val checksum = sum xor 0xFFFF
+        return byteArrayOf((checksum and 0xFF).toByte(), ((checksum ushr 8) and 0xFF).toByte())
+    }
+
+    /** Parse a complete frame and validate its length and checksum. */
+    fun tryParseTelemetry(bytes: ByteArray): PartialTelemetry? {
+        if (bytes.size < 9) return null
+        if ((bytes[0].toInt() and 0xFF) != HEADER_1 ||
+            (bytes[1].toInt() and 0xFF) != HEADER_2) return null
+        val payloadLength = bytes[2].toInt() and 0xFF
+        if (bytes.size != payloadLength + 9) return null
+
+        val checksum = computeChecksum(bytes.copyOfRange(2, bytes.size - 2))
+        if (bytes[bytes.size - 2] != checksum[0] ||
+            bytes[bytes.size - 1] != checksum[1]) return null
+
+        val response = RegisterResponse(
+            command = bytes[5].toInt() and 0xFF,
+            register = bytes[6].toInt() and 0xFF,
+            payload = bytes.copyOfRange(7, bytes.size - 2),
+            source = bytes[3].toInt() and 0xFF,
+            destination = bytes[4].toInt() and 0xFF
+        )
+        return PartialTelemetry(bytes.copyOf(), response)
     }
 
     fun toHex(bytes: ByteArray): String =
-        bytes.joinToString(" ") { String.format("%02X", it) }
+        bytes.joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }
 
-    /**
-     * Пытается разобрать входящий пакет телеметрии. Поскольку раскладка полей
-     * для SNSC не подтверждена, парсер возвращает null, если кадр не похож на
-     * валидный (неверный заголовок/чексумма) — реальные смещения полей нужно
-     * откалибровать по сырым данным в "Журнале" после первого подключения.
-     */
-    fun tryParseTelemetry(bytes: ByteArray): PartialTelemetry? {
-        if (bytes.size < 7) return null
-        if (bytes[0] != HEADER_1 || bytes[1] != HEADER_2) return null
-        // Разбор полезной нагрузки намеренно не реализован до калибровки по
-        // реальному устройству — возвращаем только факт валидного кадра.
-        return PartialTelemetry(raw = bytes)
-    }
-
-    data class PartialTelemetry(val raw: ByteArray)
+    data class PartialTelemetry(val raw: ByteArray, val response: RegisterResponse)
 }
