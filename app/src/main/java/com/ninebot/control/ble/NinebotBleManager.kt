@@ -98,13 +98,44 @@ class NinebotBleManager(private val context: Context) {
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            val service = g.getService(BleConstants.SERVICE_UUID)
-            if (service == null) {
-                appendLog("Ожидаемый сервис ${BleConstants.SERVICE_UUID} не найден. Проверьте UUID вручную.")
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                appendLog("Ошибка обнаружения GATT-сервисов: status=$status")
                 _state.update { it.copy(connection = ConnectionStatus.ERROR) }
                 return
             }
+
+            // First collect evidence from the actual controller instead of assuming
+            // that every Ninebot exposes Nordic-UART UUIDs.
+            appendLog("GATT: найдено сервисов: ${g.services.size}")
+            g.services.forEach { service ->
+                appendLog("SERVICE ${service.uuid}")
+                service.characteristics.forEach { characteristic ->
+                    val properties = buildList {
+                        val p = characteristic.properties
+                        if (p and BluetoothGattCharacteristic.PROPERTY_READ != 0) add("READ")
+                        if (p and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) add("WRITE")
+                        if (p and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) add("WRITE_NR")
+                        if (p and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) add("NOTIFY")
+                        if (p and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) add("INDICATE")
+                    }.ifEmpty { listOf("no-common-properties") }.joinToString(",")
+                    appendLog("  CHAR ${characteristic.uuid} [${properties}]")
+                }
+            }
+
+            val service = g.getService(BleConstants.SERVICE_UUID)
+            if (service == null) {
+                writeCharacteristic = null
+                appendLog("Предполагаемый UART-сервис ${BleConstants.SERVICE_UUID} не найден.")
+                appendLog("Пока ничего не отправляю: пришлите этот журнал, чтобы определить реальные UUID.")
+                _state.update { it.copy(connection = ConnectionStatus.CONNECTED) }
+                return
+            }
+
             writeCharacteristic = service.getCharacteristic(BleConstants.WRITE_CHARACTERISTIC_UUID)
+            if (writeCharacteristic == null) {
+                appendLog("UART-сервис есть, но write-характеристика ${BleConstants.WRITE_CHARACTERISTIC_UUID} отсутствует.")
+            }
+
             val notifyChar = service.getCharacteristic(BleConstants.NOTIFY_CHARACTERISTIC_UUID)
             if (notifyChar != null) {
                 g.setCharacteristicNotification(notifyChar, true)
@@ -118,10 +149,14 @@ class NinebotBleManager(private val context: Context) {
                         @Suppress("DEPRECATION")
                         g.writeDescriptor(cccd)
                     }
+                } else {
+                    appendLog("У notify-характеристики нет CCCD-дескриптора.")
                 }
+            } else {
+                appendLog("UART notify-характеристика ${BleConstants.NOTIFY_CHARACTERISTIC_UUID} не найдена.")
             }
             _state.update { it.copy(connection = ConnectionStatus.CONNECTED) }
-            appendLog("Подключено. Сервис и характеристики найдены.")
+            appendLog("GATT-обнаружение завершено. TX разрешён только через известную write-характеристику.")
         }
 
         override fun onCharacteristicChanged(
